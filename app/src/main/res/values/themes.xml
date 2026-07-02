@@ -1,0 +1,8 @@
+<resources>
+    <!-- Base application theme. -->
+    <style name="Theme.KeyNote" parent="android:Theme.DeviceDefault.NoActionBar">
+        <!-- Customize your light theme here. -->
+        <item name="android:statusBarColor">#00000000</item>
+        <item name="android:navigationBarColor">#00000000</item>
+    </style>
+</resources>
