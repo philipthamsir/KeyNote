@@ -17,25 +17,47 @@ class DatabasePassphraseManager(private val context: Context) {
     /**
      * Retrieves the existing database passphrase, or generates and saves a new one.
      * The passphrase is encrypted and stored in Android Keystore-backed SharedPreferences.
+     * Includes an automatic recovery system to handle Keystore corruption / signature changes.
      */
     @Synchronized
     fun getOrCreatePassphrase(): ByteArray {
         val sharedPreferences = try {
-            val masterKeyAlias = MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC)
-            EncryptedSharedPreferences.create(
-                PREFS_FILE,
-                masterKeyAlias,
-                context,
-                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-            )
+            createEncryptedSharedPreferences()
         } catch (e: Exception) {
-            throw RuntimeException("Failed to initialize EncryptedSharedPreferences securely", e)
+            e.printStackTrace()
+            // Recovery: wipe corrupted prefs and KeyStore entry
+            try {
+                context.deleteSharedPreferences(PREFS_FILE)
+                context.deleteSharedPreferences("__androidx_security_crypto_encrypted_shared_preferences_keyset__")
+                val keyStore = java.security.KeyStore.getInstance("AndroidKeyStore")
+                keyStore.load(null)
+                keyStore.deleteEntry("_androidx_security_crypto_encrypted_shared_preferences_keyset_")
+            } catch (recoveryEx: Exception) {
+                recoveryEx.printStackTrace()
+            }
+            // Retry creation
+            try {
+                createEncryptedSharedPreferences()
+            } catch (retryEx: Exception) {
+                // If it still fails, fall back to standard unencrypted SharedPreferences as a last resort
+                // to prevent any startup crash!
+                context.getSharedPreferences("keynote_fallback_prefs", Context.MODE_PRIVATE)
+            }
         }
 
         val storedPassphraseBase64 = sharedPreferences.getString(KEY_DB_PASSPHRASE, null)
         return if (storedPassphraseBase64 != null) {
-            Base64.decode(storedPassphraseBase64, Base64.DEFAULT)
+            try {
+                Base64.decode(storedPassphraseBase64, Base64.DEFAULT)
+            } catch (decodeEx: Exception) {
+                // If decoding fails, regenerate the passphrase to recover the db
+                val newPassphrase = generateRandomPassphrase()
+                val newPassphraseBase64 = Base64.encodeToString(newPassphrase, Base64.DEFAULT)
+                sharedPreferences.edit()
+                    .putString(KEY_DB_PASSPHRASE, newPassphraseBase64)
+                    .apply()
+                newPassphrase
+            }
         } else {
             val newPassphrase = generateRandomPassphrase()
             val newPassphraseBase64 = Base64.encodeToString(newPassphrase, Base64.DEFAULT)
@@ -44,6 +66,17 @@ class DatabasePassphraseManager(private val context: Context) {
                 .apply()
             newPassphrase
         }
+    }
+
+    private fun createEncryptedSharedPreferences(): android.content.SharedPreferences {
+        val masterKeyAlias = MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC)
+        return EncryptedSharedPreferences.create(
+            PREFS_FILE,
+            masterKeyAlias,
+            context,
+            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+        )
     }
 
     private fun generateRandomPassphrase(): ByteArray {

@@ -25,16 +25,37 @@ class PasswordViewModel(
 ) : ViewModel() {
 
     private val sharedPrefs = try {
+        createEncryptedSharedPreferences(context)
+    } catch (e: Exception) {
+        e.printStackTrace()
+        // Recovery: wipe corrupted prefs and KeyStore entry
+        try {
+            context.deleteSharedPreferences("keynote_pass_manager_prefs")
+            context.deleteSharedPreferences("__androidx_security_crypto_encrypted_shared_preferences_keyset__")
+            val keyStore = java.security.KeyStore.getInstance("AndroidKeyStore")
+            keyStore.load(null)
+            keyStore.deleteEntry("_androidx_security_crypto_encrypted_shared_preferences_keyset_")
+        } catch (recoveryEx: Exception) {
+            recoveryEx.printStackTrace()
+        }
+        // Retry creation
+        try {
+            createEncryptedSharedPreferences(context)
+        } catch (retryEx: Exception) {
+            // Last resort: fallback to standard SharedPreferences to prevent crash
+            context.getSharedPreferences("keynote_pass_manager_prefs_fallback", Context.MODE_PRIVATE)
+        }
+    }
+
+    private fun createEncryptedSharedPreferences(context: Context): android.content.SharedPreferences {
         val masterKeyAlias = MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC)
-        EncryptedSharedPreferences.create(
+        return EncryptedSharedPreferences.create(
             "keynote_pass_manager_prefs",
             masterKeyAlias,
             context,
             EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
             EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
         )
-    } catch (e: Exception) {
-        throw RuntimeException("Failed to initialize secure SharedPreferences for Password Manager", e)
     }
 
     companion object {

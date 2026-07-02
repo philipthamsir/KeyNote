@@ -1,0 +1,55 @@
+{
+  "project_info": {
+    "project_number": "267702608097",
+    "project_id": "keynote-d4f86",
+    "storage_bucket": "keynote-d4f86.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:267702608097:android:654bfe34c298bacb0e17a0",
+        "android_client_info": {
+          "package_name": "com.philip.keynote"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "267702608097-892lqkc578qae8s90p772ohij3hvctgr.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.philip.keynote",
+            "certificate_hash": "7b4180b572ba9caf2a67d395d45f7b340e21d21b"
+          }
+        },
+        {
+          "client_id": "267702608097-cksb6hc09frhnfarjpo2ueg78ib9d3a3.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.philip.keynote",
+            "certificate_hash": "491eb49ff8197553c6234183361bc8380816aa28"
+          }
+        },
+        {
+          "client_id": "267702608097-15traa34ehod69bqi61lcsr81ccfiq9q.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDtIndK59VIaRAC0FdJxuzxANtDdICcnOM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "267702608097-15traa34ehod69bqi61lcsr81ccfiq9q.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

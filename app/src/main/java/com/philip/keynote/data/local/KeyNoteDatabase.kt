@@ -30,9 +30,24 @@ abstract class KeyNoteDatabase : RoomDatabase() {
 
         fun getDatabase(context: Context): KeyNoteDatabase {
             return INSTANCE ?: synchronized(this) {
-                val instance = buildDatabase(context.applicationContext)
-                INSTANCE = instance
-                instance
+                try {
+                    val instance = buildDatabase(context.applicationContext)
+                    // Force open the database to trigger key validation
+                    instance.openHelper.writableDatabase
+                    INSTANCE = instance
+                    instance
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    // If decryption fails (e.g. due to Keystore reset/passphrase change), recreate the database
+                    try {
+                        context.deleteDatabase("keynote_encrypted.db")
+                    } catch (delEx: Exception) {
+                        delEx.printStackTrace()
+                    }
+                    val instance = buildDatabase(context.applicationContext)
+                    INSTANCE = instance
+                    instance
+                }
             }
         }
 

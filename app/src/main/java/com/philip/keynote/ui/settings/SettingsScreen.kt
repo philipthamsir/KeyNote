@@ -27,11 +27,15 @@ import androidx.compose.ui.unit.dp
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.common.api.ApiException
+import com.google.android.gms.common.api.Scope
 import com.philip.keynote.data.backup.BackupManager
+import com.philip.keynote.data.backup.GoogleDriveBackupHelper
 import com.philip.keynote.data.settings.SettingsManager
 import com.philip.keynote.ui.theme.Localization
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.io.ByteArrayOutputStream
+import java.io.ByteArrayInputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -46,6 +50,7 @@ fun SettingsScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val backupManager = remember { BackupManager(context) }
+    val googleDriveBackupHelper = remember { GoogleDriveBackupHelper(context) }
 
     var viewMode by remember { mutableStateOf(settingsManager.getNotesViewMode()) }
     var language by remember { mutableStateOf(settingsManager.getLanguage()) }
@@ -69,16 +74,13 @@ fun SettingsScreen(
     var lastBackupTime by remember { mutableStateOf(settingsManager.getLastOnlineBackupTime()) }
     var isSyncing by remember { mutableStateOf(false) }
 
-    // Account selector fallback dialog states
-    var showAccountSelector by remember { mutableStateOf(false) }
-    var showCustomEmailInput by remember { mutableStateOf(false) }
-    var customEmailText by remember { mutableStateOf("") }
-    var customNameText by remember { mutableStateOf("") }
+
 
     // Configure Google Sign In SDK Client
     val gso = remember {
         GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
             .requestEmail()
+            .requestScopes(Scope("https://www.googleapis.com/auth/drive.appdata"))
             .build()
     }
     val googleSignInClient = remember {
@@ -103,13 +105,7 @@ fun SettingsScreen(
                     Toast.makeText(context, "Akun Google kosong.", Toast.LENGTH_SHORT).show()
                 }
             } catch (e: ApiException) {
-                // If official SDK fails (e.g. code 10 developer SHA-1 mismatch), open alternative selector
-                if (e.statusCode == 10 || e.statusCode == 12500 || e.statusCode == 16 || e.statusCode == 4) {
-                    Toast.makeText(context, "Debug Mode: Mengaktifkan pemilih akun alternatif Google.", Toast.LENGTH_LONG).show()
-                    showAccountSelector = true
-                } else {
-                    Toast.makeText(context, "Gagal masuk Google: ${e.statusCode}", Toast.LENGTH_LONG).show()
-                }
+                Toast.makeText(context, "Gagal masuk Google: ${e.statusCode}", Toast.LENGTH_LONG).show()
             }
         }
     )
@@ -612,25 +608,27 @@ fun SettingsScreen(
                                     isSyncing = true
                                     coroutineScope.launch {
                                         try {
-                                            delay(2000)
-                                            val simulatedPass = "google_drive_secure_backup"
-                                            val cloudFolder = java.io.File(context.filesDir, "google_drive_backup")
-                                            if (!cloudFolder.exists()) cloudFolder.mkdirs()
-                                            
-                                            val sanitizedEmail = googleEmail.replace("@", "_").replace(".", "_")
-                                            val backupFile = java.io.File(cloudFolder, "backup_$sanitizedEmail.json")
-                                            
-                                            val outputStream = java.io.FileOutputStream(backupFile)
-                                            val result = backupManager.exportBackup(simulatedPass, outputStream)
-                                            outputStream.close()
-                                            
-                                            if (result.isSuccess) {
-                                                val now = System.currentTimeMillis()
-                                                settingsManager.setLastOnlineBackupTime(now)
-                                                lastBackupTime = now
-                                                Toast.makeText(context, "Pencadangan online berhasil disimpan!", Toast.LENGTH_SHORT).show()
+                                            val account = GoogleSignIn.getLastSignedInAccount(context)
+                                            if (account != null && account.account != null) {
+                                                val simulatedPass = "google_drive_secure_backup"
+                                                val outputStream = ByteArrayOutputStream()
+                                                val exportResult = backupManager.exportBackup(simulatedPass, outputStream)
+                                                if (exportResult.isSuccess) {
+                                                    val backupBytes = outputStream.toByteArray()
+                                                    val uploadSuccess = googleDriveBackupHelper.uploadBackup(account.account!!, backupBytes)
+                                                    if (uploadSuccess) {
+                                                        val now = System.currentTimeMillis()
+                                                        settingsManager.setLastOnlineBackupTime(now)
+                                                        lastBackupTime = now
+                                                        Toast.makeText(context, "Pencadangan Google Drive berhasil!", Toast.LENGTH_SHORT).show()
+                                                    } else {
+                                                        Toast.makeText(context, "Gagal mengunggah ke Google Drive.", Toast.LENGTH_LONG).show()
+                                                    }
+                                                } else {
+                                                    Toast.makeText(context, "Gagal mengekspor data: ${exportResult.exceptionOrNull()?.message}", Toast.LENGTH_LONG).show()
+                                                }
                                             } else {
-                                                Toast.makeText(context, "Gagal mencadangkan: ${result.exceptionOrNull()?.message}", Toast.LENGTH_LONG).show()
+                                                Toast.makeText(context, "Akun Google tidak ditemukan.", Toast.LENGTH_SHORT).show()
                                             }
                                         } catch (e: Exception) {
                                             Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
@@ -650,25 +648,23 @@ fun SettingsScreen(
                                     isSyncing = true
                                     coroutineScope.launch {
                                         try {
-                                            delay(2000)
-                                            val cloudFolder = java.io.File(context.filesDir, "google_drive_backup")
-                                            
-                                            val sanitizedEmail = googleEmail.replace("@", "_").replace(".", "_")
-                                            val backupFile = java.io.File(cloudFolder, "backup_$sanitizedEmail.json")
-                                            
-                                            if (backupFile.exists()) {
-                                                val inputStream = java.io.FileInputStream(backupFile)
-                                                val simulatedPass = "google_drive_secure_backup"
-                                                val result = backupManager.importBackup(simulatedPass, inputStream)
-                                                inputStream.close()
-                                                
-                                                if (result.isSuccess) {
-                                                    Toast.makeText(context, "Restore pencadangan online berhasil! Mulai ulang aplikasi.", Toast.LENGTH_LONG).show()
+                                            val account = GoogleSignIn.getLastSignedInAccount(context)
+                                            if (account != null && account.account != null) {
+                                                val backupBytes = googleDriveBackupHelper.downloadBackup(account.account!!)
+                                                if (backupBytes != null && backupBytes.isNotEmpty()) {
+                                                    val inputStream = ByteArrayInputStream(backupBytes)
+                                                    val simulatedPass = "google_drive_secure_backup"
+                                                    val result = backupManager.importBackup(simulatedPass, inputStream)
+                                                    if (result.isSuccess) {
+                                                        Toast.makeText(context, "Restore pencadangan online berhasil! Mulai ulang aplikasi.", Toast.LENGTH_LONG).show()
+                                                    } else {
+                                                        Toast.makeText(context, "Gagal memulihkan: ${result.exceptionOrNull()?.message}", Toast.LENGTH_LONG).show()
+                                                    }
                                                 } else {
-                                                    Toast.makeText(context, "Gagal memulihkan: ${result.exceptionOrNull()?.message}", Toast.LENGTH_LONG).show()
+                                                    Toast.makeText(context, "Tidak ada data pencadangan ditemukan di Google Drive untuk akun ini.", Toast.LENGTH_LONG).show()
                                                 }
                                             } else {
-                                                Toast.makeText(context, "Tidak ada data pencadangan ditemukan untuk akun ini.", Toast.LENGTH_LONG).show()
+                                                Toast.makeText(context, "Akun Google tidak ditemukan.", Toast.LENGTH_SHORT).show()
                                             }
                                         } catch (e: Exception) {
                                             Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
@@ -684,7 +680,7 @@ fun SettingsScreen(
                                 Text("Pulihkan Cadangan")
                             }
                         }
-                        
+
                         Spacer(modifier = Modifier.height(12.dp))
                         
                         TextButton(
@@ -710,147 +706,6 @@ fun SettingsScreen(
             }
         }
 
-        // Google Selectable Account Dialog (Fallback for local debug mode)
-        if (showAccountSelector) {
-            AlertDialog(
-                onDismissRequest = { 
-                    showAccountSelector = false 
-                    showCustomEmailInput = false
-                },
-                title = { 
-                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                        Text("Pilih akun", fontWeight = FontWeight.Bold)
-                        Text("untuk melanjutkan ke KeyNote", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-                    }
-                },
-                text = {
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        if (!showCustomEmailInput) {
-                            // Discovered Account 1
-                            ListItem(
-                                headlineContent = { Text("Philip User") },
-                                supportingContent = { Text("philip.user@gmail.com") },
-                                leadingContent = { 
-                                    Box(modifier = Modifier.size(36.dp).clip(CircleShape).background(Color(0xFFE8F0FE)), contentAlignment = Alignment.Center) {
-                                        Text("P", color = Color(0xFF1A73E8), fontWeight = FontWeight.Bold)
-                                    }
-                                },
-                                modifier = Modifier.clickable {
-                                    isSyncing = true
-                                    showAccountSelector = false
-                                    coroutineScope.launch {
-                                        delay(1000)
-                                        settingsManager.setGoogleSignedIn(true, "philip.user@gmail.com", "Philip User")
-                                        googleSignedIn = true
-                                        googleEmail = "philip.user@gmail.com"
-                                        googleName = "Philip User"
-                                        isSyncing = false
-                                        Toast.makeText(context, "Masuk sebagai philip.user@gmail.com", Toast.LENGTH_SHORT).show()
-                                    }
-                                }
-                            )
-                            HorizontalDivider()
-                            
-                            // Discovered Account 2
-                            ListItem(
-                                headlineContent = { Text("Philip Work") },
-                                supportingContent = { Text("philip.work@gmail.com") },
-                                leadingContent = { 
-                                    Box(modifier = Modifier.size(36.dp).clip(CircleShape).background(Color(0xFFE8F0FE)), contentAlignment = Alignment.Center) {
-                                        Text("P", color = Color(0xFF1A73E8), fontWeight = FontWeight.Bold)
-                                    }
-                                },
-                                modifier = Modifier.clickable {
-                                    isSyncing = true
-                                    showAccountSelector = false
-                                    coroutineScope.launch {
-                                        delay(1000)
-                                        settingsManager.setGoogleSignedIn(true, "philip.work@gmail.com", "Philip Work")
-                                        googleSignedIn = true
-                                        googleEmail = "philip.work@gmail.com"
-                                        googleName = "Philip Work"
-                                        isSyncing = false
-                                        Toast.makeText(context, "Masuk sebagai philip.work@gmail.com", Toast.LENGTH_SHORT).show()
-                                    }
-                                }
-                            )
-                            HorizontalDivider()
-
-                            // Custom Account Option
-                            ListItem(
-                                headlineContent = { Text("Tambahkan akun lain", color = Color(0xFF1A73E8)) },
-                                leadingContent = { 
-                                    Icon(Icons.Default.CloudQueue, contentDescription = null, tint = Color(0xFF1A73E8))
-                                },
-                                modifier = Modifier.clickable {
-                                    showCustomEmailInput = true
-                                }
-                            )
-                        } else {
-                            // Custom Account Form
-                            Text("Masukkan detail akun Google Anda:", style = MaterialTheme.typography.bodyMedium)
-                            Spacer(modifier = Modifier.height(12.dp))
-                            OutlinedTextField(
-                                value = customNameText,
-                                onValueChange = { customNameText = it },
-                                label = { Text("Nama Pengguna") },
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
-                            )
-                            OutlinedTextField(
-                                value = customEmailText,
-                                onValueChange = { customEmailText = it },
-                                label = { Text("Alamat Email Google") },
-                                singleLine = true,
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        }
-                    }
-                },
-                confirmButton = {
-                    if (showCustomEmailInput) {
-                        Button(
-                            onClick = {
-                                if (customEmailText.isNotBlank() && customNameText.isNotBlank()) {
-                                    isSyncing = true
-                                    showAccountSelector = false
-                                    showCustomEmailInput = false
-                                    val email = customEmailText
-                                    val name = customNameText
-                                    coroutineScope.launch {
-                                        delay(1000)
-                                        settingsManager.setGoogleSignedIn(true, email, name)
-                                        googleSignedIn = true
-                                        googleEmail = email
-                                        googleName = name
-                                        isSyncing = false
-                                        Toast.makeText(context, "Masuk sebagai $email", Toast.LENGTH_SHORT).show()
-                                    }
-                                } else {
-                                    Toast.makeText(context, "Harap isi semua kolom!", Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                        ) {
-                            Text("Masuk")
-                        }
-                    }
-                },
-                dismissButton = {
-                    TextButton(
-                        onClick = {
-                            if (showCustomEmailInput) {
-                                showCustomEmailInput = false
-                            } else {
-                                showAccountSelector = false
-                            }
-                        }
-                    ) {
-                        Text("Batal")
-                    }
-                }
-            )
-        }
 
         // Backup Password dialogs (.json name matching)
         if (showBackupDialog) {
