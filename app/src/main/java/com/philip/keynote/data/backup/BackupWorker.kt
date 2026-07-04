@@ -1,7 +1,6 @@
 package com.philip.keynote.data.backup
 
 import android.content.Context
-import android.util.Log
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -21,13 +20,11 @@ class BackupWorker(
 ) : CoroutineWorker(context, workerParams) {
 
     override suspend fun doWork(): Result {
-        Log.d("BackupWorker", "doWork: Starting background auto backup")
         val context = applicationContext
         val settingsManager = SettingsManager(context)
 
         // 1. Check if online backup is enabled
         if (!settingsManager.isOnlineBackupEnabled()) {
-            Log.d("BackupWorker", "doWork: Online backup is disabled, skipping")
             cancelAutoBackup(context)
             return Result.success()
         }
@@ -36,22 +33,21 @@ class BackupWorker(
         val account = GoogleSignIn.getLastSignedInAccount(context)
         val driveScope = Scope("https://www.googleapis.com/auth/drive.appdata")
         if (account == null || !GoogleSignIn.hasPermissions(account, driveScope)) {
-            Log.w("BackupWorker", "doWork: Google account has no Drive permissions, skipping")
             return Result.success()
         }
 
         val googleAccount = account.account
         if (googleAccount == null) {
-            Log.w("BackupWorker", "doWork: Google account is null, skipping")
             return Result.success()
         }
 
         try {
-            // 3. Export database backup using simulated password
+            // 3. Export database backup using unique password
             val backupManager = BackupManager(context)
             val outputStream = ByteArrayOutputStream()
-            val simulatedPass = "google_drive_secure_backup"
-            val exportResult = backupManager.exportBackup(simulatedPass, outputStream)
+            val backupKeyManager = com.philip.keynote.security.BackupKeyManager(context)
+            val backupPass = backupKeyManager.getOrCreateBackupKey()
+            val exportResult = backupManager.exportBackup(backupPass, outputStream)
 
             if (exportResult.isSuccess) {
                 val backupBytes = outputStream.toByteArray()
@@ -62,20 +58,14 @@ class BackupWorker(
                 if (uploadResult.isSuccess) {
                     val now = System.currentTimeMillis()
                     settingsManager.setLastOnlineBackupTime(now)
-                    Log.i("BackupWorker", "doWork: Auto backup succeeded!")
                     return Result.success()
                 } else {
-                    val error = uploadResult.exceptionOrNull()
-                    Log.e("BackupWorker", "doWork: GDrive upload failed", error)
                     return Result.retry()
                 }
             } else {
-                val error = exportResult.exceptionOrNull()
-                Log.e("BackupWorker", "doWork: Database export failed", error)
                 return Result.failure()
             }
         } catch (e: Exception) {
-            Log.e("BackupWorker", "doWork: Unexpected exception", e)
             return Result.retry()
         }
     }
@@ -97,12 +87,10 @@ class BackupWorker(
                 ExistingPeriodicWorkPolicy.KEEP, // Keep existing work to not reset the timer
                 backupWorkRequest
             )
-            Log.d("BackupWorker", "scheduleAutoBackup: Scheduled daily backup")
         }
 
         fun cancelAutoBackup(context: Context) {
             WorkManager.getInstance(context).cancelUniqueWork(WORK_NAME)
-            Log.d("BackupWorker", "cancelAutoBackup: Cancelled scheduled backup")
         }
     }
 }

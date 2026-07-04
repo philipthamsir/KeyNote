@@ -2,7 +2,6 @@ package com.philip.keynote.data.backup
 
 import android.accounts.Account
 import android.content.Context
-import android.util.Log
 import com.google.android.gms.auth.GoogleAuthUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -40,7 +39,6 @@ class GoogleDriveBackupHelper(private val context: Context) {
                     if (!success) throw Exception("Gagal menulis isi file di Google Drive.")
                 }
             } catch (e: Exception) {
-                Log.e("GDriveBackup", "Exception in uploadBackup", e)
                 if (token != null) {
                     clearCachedToken(token)
                 }
@@ -65,7 +63,6 @@ class GoogleDriveBackupHelper(private val context: Context) {
                 val fileId = findFileId(token) ?: throw Exception("File cadangan tidak ditemukan di Google Drive.")
                 downloadFileContent(token, fileId) ?: throw Exception("Gagal mengunduh file cadangan dari Google Drive.")
             } catch (e: Exception) {
-                Log.e("GDriveBackup", "Exception in downloadBackup", e)
                 if (token != null) {
                     clearCachedToken(token)
                 }
@@ -85,9 +82,7 @@ class GoogleDriveBackupHelper(private val context: Context) {
     private fun clearCachedToken(token: String) {
         try {
             GoogleAuthUtil.clearToken(context, token)
-            Log.d("GDriveBackup", "Cached token successfully cleared")
         } catch (e: Exception) {
-            Log.e("GDriveBackup", "Failed to clear token cache", e)
         }
     }
 
@@ -118,12 +113,10 @@ class GoogleDriveBackupHelper(private val context: Context) {
             }
         } else if (responseCode == 401 || responseCode == 403) {
             val errorResponse = conn.errorStream?.bufferedReader()?.use { it.readText() }
-            Log.e("GDriveBackup", "Auth Error $responseCode: $errorResponse")
             val parsedMsg = parseErrorMessage(errorResponse) ?: "Akses ditolak (HTTP $responseCode)"
             throw GoogleDriveAuthException(parsedMsg)
         } else {
             val errorResponse = conn.errorStream?.bufferedReader()?.use { it.readText() }
-            Log.e("GDriveBackup", "HTTP Error $responseCode: $errorResponse")
             val parsedMsg = parseErrorMessage(errorResponse) ?: "HTTP Error $responseCode"
             throw Exception(parsedMsg)
         }
@@ -154,12 +147,10 @@ class GoogleDriveBackupHelper(private val context: Context) {
             return json.getString("id")
         } else if (responseCode == 401 || responseCode == 403) {
             val errorResponse = conn.errorStream?.bufferedReader()?.use { it.readText() }
-            Log.e("GDriveBackup", "Auth Error $responseCode: $errorResponse")
             val parsedMsg = parseErrorMessage(errorResponse) ?: "Akses ditolak (HTTP $responseCode)"
             throw GoogleDriveAuthException(parsedMsg)
         } else {
             val errorResponse = conn.errorStream?.bufferedReader()?.use { it.readText() }
-            Log.e("GDriveBackup", "HTTP Error $responseCode: $errorResponse")
             val parsedMsg = parseErrorMessage(errorResponse) ?: "HTTP Error $responseCode"
             throw Exception(parsedMsg)
         }
@@ -187,12 +178,10 @@ class GoogleDriveBackupHelper(private val context: Context) {
             return true
         } else if (responseCode == 401 || responseCode == 403) {
             val errorResponse = conn.errorStream?.bufferedReader()?.use { it.readText() }
-            Log.e("GDriveBackup", "Auth Error $responseCode: $errorResponse")
             val parsedMsg = parseErrorMessage(errorResponse) ?: "Akses ditolak (HTTP $responseCode)"
             throw GoogleDriveAuthException(parsedMsg)
         } else {
             val errorResponse = conn.errorStream?.bufferedReader()?.use { it.readText() }
-            Log.e("GDriveBackup", "HTTP Error $responseCode: $errorResponse")
             val parsedMsg = parseErrorMessage(errorResponse) ?: "HTTP Error $responseCode"
             throw Exception(parsedMsg)
         }
@@ -209,12 +198,10 @@ class GoogleDriveBackupHelper(private val context: Context) {
             return conn.inputStream.use { it.readBytes() }
         } else if (responseCode == 401 || responseCode == 403) {
             val errorResponse = conn.errorStream?.bufferedReader()?.use { it.readText() }
-            Log.e("GDriveBackup", "Auth Error $responseCode: $errorResponse")
             val parsedMsg = parseErrorMessage(errorResponse) ?: "Akses ditolak (HTTP $responseCode)"
             throw GoogleDriveAuthException(parsedMsg)
         } else {
             val errorResponse = conn.errorStream?.bufferedReader()?.use { it.readText() }
-            Log.e("GDriveBackup", "HTTP Error $responseCode: $errorResponse")
             val parsedMsg = parseErrorMessage(errorResponse) ?: "HTTP Error $responseCode"
             throw Exception(parsedMsg)
         }

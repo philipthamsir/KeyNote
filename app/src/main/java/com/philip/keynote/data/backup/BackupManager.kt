@@ -137,10 +137,10 @@ class BackupManager(private val context: Context) {
     }
 
     private fun deriveKey(password: String, salt: ByteArray): SecretKeySpec {
-        val iterationCount = 10000
+        val iterationCount = 210000
         val keyLength = 256
         val spec = PBEKeySpec(password.toCharArray(), salt, iterationCount, keyLength)
-        val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA1")
+        val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
         val tmp = factory.generateSecret(spec)
         return SecretKeySpec(tmp.encoded, "AES")
     }

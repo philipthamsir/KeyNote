@@ -26,6 +26,9 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.philip.keynote.data.local.FieldType
 import com.philip.keynote.data.local.PasswordField
+import com.philip.keynote.ui.components.SecureScreen
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -43,6 +46,9 @@ fun PasswordDetailScreen(
     var isEditMode by remember { mutableStateOf(initialEditMode) }
     var showAddFieldMenu by remember { mutableStateOf(false) }
     var passwordVisibilities by remember { mutableStateOf(mapOf<String, Boolean>()) }
+    val coroutineScope = rememberCoroutineScope()
+
+    SecureScreen()
 
     LaunchedEffect(passwordId, categoryId) {
         viewModel.loadPassword(passwordId, categoryId)
@@ -210,6 +216,12 @@ fun PasswordDetailScreen(
                             val clip = ClipData.newPlainText(field.label, field.value)
                             clipboard.setPrimaryClip(clip)
                             Toast.makeText(context, "${field.label} berhasil disalin!", Toast.LENGTH_SHORT).show()
+                            coroutineScope.launch {
+                                delay(30_000)
+                                if (clipboard.primaryClip?.getItemAt(0)?.text == field.value) {
+                                    clipboard.setPrimaryClip(ClipData.newPlainText("", ""))
+                                }
+                            }
                         }
                     )
                 }

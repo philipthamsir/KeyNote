@@ -625,7 +625,8 @@ fun SettingsScreen(
                                             }
 
                                             if (account.account != null) {
-                                                val simulatedPass = "google_drive_secure_backup"
+                                                val backupKeyManager = com.philip.keynote.security.BackupKeyManager(context)
+                                                val simulatedPass = backupKeyManager.getOrCreateBackupKey()
                                                 val outputStream = ByteArrayOutputStream()
                                                 val exportResult = backupManager.exportBackup(simulatedPass, outputStream)
                                                 if (exportResult.isSuccess) {
@@ -692,7 +693,8 @@ fun SettingsScreen(
                                                     val backupBytes = downloadResult.getOrNull()
                                                     if (backupBytes != null && backupBytes.isNotEmpty()) {
                                                         val inputStream = ByteArrayInputStream(backupBytes)
-                                                        val simulatedPass = "google_drive_secure_backup"
+                                                        val backupKeyManager = com.philip.keynote.security.BackupKeyManager(context)
+                                                        val simulatedPass = backupKeyManager.getOrCreateBackupKey()
                                                         val result = backupManager.importBackup(simulatedPass, inputStream)
                                                         if (result.isSuccess) {
                                                             Toast.makeText(context, "Restore pencadangan online berhasil! Mulai ulang aplikasi.", Toast.LENGTH_LONG).show()

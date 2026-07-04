@@ -21,6 +21,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.philip.keynote.data.local.entity.CategoryEntity
+import com.philip.keynote.ui.components.SecureScreen
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -30,6 +31,7 @@ fun PasswordCategoriesScreen(
     onCategoryClick: (Long) -> Unit,
     onBack: () -> Unit
 ) {
+    SecureScreen()
     val categories by viewModel.categories.collectAsState()
     
     var showAddDialog by remember { mutableStateOf(false) }

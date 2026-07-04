@@ -21,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.philip.keynote.ui.components.SecureScreen
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -31,6 +32,7 @@ fun PasswordListScreen(
     onAddPasswordClick: (Long) -> Unit,
     onBack: () -> Unit
 ) {
+    SecureScreen()
     val passwords by viewModel.passwords.collectAsState()
 
     LaunchedEffect(categoryId) {

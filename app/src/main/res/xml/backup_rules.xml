@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <full-backup-content>
-    <!-- By default, exclude the SQLite database file if it contains encrypted info that shouldn't be backed up unencrypted,
-         but since we are doing Zero-Knowledge cloud sync manually later, we can manage backup parameters here. -->
+    <exclude domain="database" path="." />
+    <exclude domain="sharedpref" path="." />
+    <exclude domain="file" path="." />
 </full-backup-content>

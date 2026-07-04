@@ -40,6 +40,7 @@ import com.philip.keynote.data.local.TableData
 import com.philip.keynote.data.settings.SettingsManager
 import com.philip.keynote.ui.components.notebookLines
 import com.philip.keynote.ui.components.rememberSafeClick
+import com.philip.keynote.ui.components.SecureScreen
 import com.philip.keynote.ui.theme.Localization
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
@@ -60,6 +61,10 @@ fun NoteDetailScreen(
     val backgroundColor by viewModel.backgroundColor.collectAsState()
     val blocks by viewModel.blocks.collectAsState()
     val isLocked by viewModel.isLocked.collectAsState()
+
+    if (isLocked) {
+        SecureScreen()
+    }
 
     var isEditMode by remember { mutableStateOf(initialEditMode) }
     var showColorPicker by remember { mutableStateOf(false) }

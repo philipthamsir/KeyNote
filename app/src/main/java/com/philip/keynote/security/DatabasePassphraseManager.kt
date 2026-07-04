@@ -24,7 +24,7 @@ class DatabasePassphraseManager(private val context: Context) {
         val sharedPreferences = try {
             createEncryptedSharedPreferences()
         } catch (e: Exception) {
-            e.printStackTrace()
+
             // Recovery: wipe corrupted prefs and KeyStore entry
             try {
                 context.deleteSharedPreferences(PREFS_FILE)
@@ -33,15 +33,13 @@ class DatabasePassphraseManager(private val context: Context) {
                 keyStore.load(null)
                 keyStore.deleteEntry("_androidx_security_crypto_encrypted_shared_preferences_keyset_")
             } catch (recoveryEx: Exception) {
-                recoveryEx.printStackTrace()
+
             }
             // Retry creation
             try {
                 createEncryptedSharedPreferences()
             } catch (retryEx: Exception) {
-                // If it still fails, fall back to standard unencrypted SharedPreferences as a last resort
-                // to prevent any startup crash!
-                context.getSharedPreferences("keynote_fallback_prefs", Context.MODE_PRIVATE)
+                throw SecurityException("Tidak dapat membuat penyimpanan aman untuk kunci database.")
             }
         }
 

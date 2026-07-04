@@ -17,6 +17,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.security.SecureRandom
+import android.util.Base64
+import javax.crypto.SecretKeyFactory
+import javax.crypto.spec.PBEKeySpec
 import java.util.UUID
 
 class PasswordViewModel(
@@ -27,7 +31,7 @@ class PasswordViewModel(
     private val sharedPrefs = try {
         createEncryptedSharedPreferences(context)
     } catch (e: Exception) {
-        e.printStackTrace()
+
         // Recovery: wipe corrupted prefs and KeyStore entry
         try {
             context.deleteSharedPreferences("keynote_pass_manager_prefs")
@@ -36,14 +40,13 @@ class PasswordViewModel(
             keyStore.load(null)
             keyStore.deleteEntry("_androidx_security_crypto_encrypted_shared_preferences_keyset_")
         } catch (recoveryEx: Exception) {
-            recoveryEx.printStackTrace()
+
         }
         // Retry creation
         try {
             createEncryptedSharedPreferences(context)
         } catch (retryEx: Exception) {
-            // Last resort: fallback to standard SharedPreferences to prevent crash
-            context.getSharedPreferences("keynote_pass_manager_prefs_fallback", Context.MODE_PRIVATE)
+            throw SecurityException("Tidak dapat membuat penyimpanan aman. Perangkat mungkin tidak mendukung enkripsi.")
         }
     }
 
@@ -60,6 +63,15 @@ class PasswordViewModel(
 
     companion object {
         private const val KEY_MASTER_PIN = "master_pin"
+        private const val KEY_PIN_SALT = "master_pin_salt"
+        private const val KEY_FAILED_ATTEMPTS = "pin_failed_attempts"
+        private const val KEY_LOCKOUT_UNTIL = "pin_lockout_until"
+        private const val PBKDF2_ITERATIONS = 210000
+        private const val HASH_KEY_LENGTH = 256
+        private const val MAX_ATTEMPTS_SOFT = 5
+        private const val MAX_ATTEMPTS_HARD = 10
+        private const val LOCKOUT_SOFT_MS = 30_000L
+        private const val LOCKOUT_HARD_MS = 300_000L
     }
 
     val categories: StateFlow<List<CategoryEntity>> = repository.categories
@@ -110,13 +122,68 @@ class PasswordViewModel(
 
     fun setupMasterPin(pin: String): Boolean {
         if (pin.length < 4) return false
-        sharedPrefs.edit().putString(KEY_MASTER_PIN, pin).apply()
+        val salt = ByteArray(16)
+        SecureRandom().nextBytes(salt)
+        val saltBase64 = Base64.encodeToString(salt, Base64.NO_WRAP)
+        val hash = hashPin(pin, salt)
+        sharedPrefs.edit()
+            .putString(KEY_MASTER_PIN, hash)
+            .putString(KEY_PIN_SALT, saltBase64)
+            .putInt(KEY_FAILED_ATTEMPTS, 0)
+            .putLong(KEY_LOCKOUT_UNTIL, 0L)
+            .apply()
         return true
     }
 
     fun verifyPin(pin: String): Boolean {
-        val storedPin = sharedPrefs.getString(KEY_MASTER_PIN, null)
-        return storedPin == pin
+        val lockoutUntil = sharedPrefs.getLong(KEY_LOCKOUT_UNTIL, 0L)
+        if (System.currentTimeMillis() < lockoutUntil) return false
+
+        val storedHash = sharedPrefs.getString(KEY_MASTER_PIN, null) ?: return false
+        val saltBase64 = sharedPrefs.getString(KEY_PIN_SALT, null)
+
+        val isValid = if (saltBase64 == null) {
+            if (storedHash == pin) {
+                setupMasterPin(pin)
+                true
+            } else false
+        } else {
+            val salt = Base64.decode(saltBase64, Base64.NO_WRAP)
+            val inputHash = hashPin(pin, salt)
+            storedHash == inputHash
+        }
+
+        if (isValid) {
+            sharedPrefs.edit()
+                .putInt(KEY_FAILED_ATTEMPTS, 0)
+                .putLong(KEY_LOCKOUT_UNTIL, 0L)
+                .apply()
+        } else {
+            val attempts = sharedPrefs.getInt(KEY_FAILED_ATTEMPTS, 0) + 1
+            val lockoutMs = when {
+                attempts >= MAX_ATTEMPTS_HARD -> LOCKOUT_HARD_MS
+                attempts >= MAX_ATTEMPTS_SOFT -> LOCKOUT_SOFT_MS
+                else -> 0L
+            }
+            sharedPrefs.edit()
+                .putInt(KEY_FAILED_ATTEMPTS, attempts)
+                .putLong(KEY_LOCKOUT_UNTIL, if (lockoutMs > 0) System.currentTimeMillis() + lockoutMs else 0L)
+                .apply()
+        }
+        return isValid
+    }
+
+    fun getRemainingLockoutSeconds(): Long {
+        val lockoutUntil = sharedPrefs.getLong(KEY_LOCKOUT_UNTIL, 0L)
+        val remaining = lockoutUntil - System.currentTimeMillis()
+        return if (remaining > 0) remaining / 1000 else 0
+    }
+
+    private fun hashPin(pin: String, salt: ByteArray): String {
+        val spec = PBEKeySpec(pin.toCharArray(), salt, PBKDF2_ITERATIONS, HASH_KEY_LENGTH)
+        val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+        val hash = factory.generateSecret(spec).encoded
+        return Base64.encodeToString(hash, Base64.NO_WRAP)
     }
 
     // Category Operations

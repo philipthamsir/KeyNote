@@ -85,6 +85,7 @@ fun NotesListScreen(
     var pendingToggleLockAction by remember { mutableStateOf(false) }
     var isBatchLockAction by remember { mutableStateOf(false) }
     var batchLockTargetState by remember { mutableStateOf(false) }
+    var pendingPasswordManagerAccess by remember { mutableStateOf(false) }
 
     val biometricAuthenticator = remember { BiometricAuthenticator(context) }
 
@@ -202,7 +203,8 @@ fun NotesListScreen(
                 )
             } else {
                 if (passwordViewModel.isPinSetup()) {
-                    onOpenPasswordManager()
+                    pendingPasswordManagerAccess = true
+                    showPinVerificationDialog = true
                 } else {
                     onOpenPasswordSetup()
                 }
@@ -713,6 +715,9 @@ fun NotesListScreen(
                                     selectedNotes.clear()
                                     isSelectionMode = false
                                     isBatchLockAction = false
+                                } else if (pendingPasswordManagerAccess) {
+                                    pendingPasswordManagerAccess = false
+                                    onOpenPasswordManager()
                                 } else {
                                     val noteId = pendingLockedNoteId
                                     if (noteId != null) {
@@ -746,6 +751,7 @@ fun NotesListScreen(
                             pendingLockedNoteId = null
                             selectedNoteForMenu = null
                             isBatchLockAction = false
+                            pendingPasswordManagerAccess = false
                         }
                     ) {
                         Text("Batal")
