@@ -12,8 +12,8 @@ android {
         applicationId = "com.philip.keynote"
         minSdk = 26
         targetSdk = 34
-        versionCode = 2
-        versionName = "1.1"
+        versionCode = 3
+        versionName = "2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -24,6 +24,7 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -82,6 +83,7 @@ dependencies {
     implementation(libs.androidx.security.crypto)
     implementation(libs.gson)
     implementation("com.google.android.gms:play-services-auth:21.2.0")
+    implementation(libs.androidx.work.runtime)
 
     // Testing
     testImplementation(libs.junit)

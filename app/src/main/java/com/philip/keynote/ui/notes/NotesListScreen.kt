@@ -1,6 +1,7 @@
 package com.philip.keynote.ui.notes
 
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -82,12 +83,35 @@ fun NotesListScreen(
     var pendingLockedNoteId by remember { mutableStateOf<Long?>(null) }
     var pendingEditMode by remember { mutableStateOf(false) }
     var pendingToggleLockAction by remember { mutableStateOf(false) }
+    var isBatchLockAction by remember { mutableStateOf(false) }
+    var batchLockTargetState by remember { mutableStateOf(false) }
 
     val biometricAuthenticator = remember { BiometricAuthenticator(context) }
 
     // Long press context menu state
     var selectedNoteForMenu by remember { mutableStateOf<NoteEntity?>(null) }
     var showMoreOptionsDialog by remember { mutableStateOf(false) }
+
+    // Multi-Selection state
+    var isSelectionMode by remember { mutableStateOf(false) }
+    val selectedNotes = remember { mutableStateListOf<NoteEntity>() }
+    var showMultiColorPicker by remember { mutableStateOf(false) }
+
+    BackHandler(enabled = isSelectionMode) {
+        isSelectionMode = false
+        selectedNotes.clear()
+    }
+
+    fun toggleSelection(note: NoteEntity) {
+        if (selectedNotes.contains(note)) {
+            selectedNotes.remove(note)
+            if (selectedNotes.isEmpty()) {
+                isSelectionMode = false
+            }
+        } else {
+            selectedNotes.add(note)
+        }
+    }
 
     // Nested scroll connection to intercept pull down overscroll events
     val nestedScrollConnection = remember {
@@ -223,71 +247,195 @@ fun NotesListScreen(
         }
     }
 
+    fun handleNoteItemClick(note: NoteEntity) {
+        if (isSelectionMode) {
+            toggleSelection(note)
+        } else {
+            handleNoteClick(note, false)
+        }
+    }
+
+    fun handleNoteItemLongClick(note: NoteEntity) {
+        if (!isSelectionMode) {
+            isSelectionMode = true
+            selectedNotes.clear()
+            selectedNotes.add(note)
+        } else {
+            toggleSelection(note)
+        }
+    }
+
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = "KeyNote",
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier
-                            .clickable(
-                                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
-                                indication = null
-                            ) {
-                                handleLogoTap()
+            if (isSelectionMode) {
+                TopAppBar(
+                    title = {
+                        Text(
+                            text = "${selectedNotes.size} terpilih",
+                            fontWeight = FontWeight.Bold
+                        )
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = {
+                            isSelectionMode = false
+                            selectedNotes.clear()
+                        }) {
+                            Icon(Icons.Default.Close, contentDescription = "Batal")
+                        }
+                    },
+                    actions = {
+                        val allNotesSelected = selectedNotes.size == notes.size
+                        IconButton(onClick = {
+                            if (allNotesSelected) {
+                                selectedNotes.clear()
+                                isSelectionMode = false
+                            } else {
+                                selectedNotes.clear()
+                                selectedNotes.addAll(notes)
                             }
-                            .padding(4.dp)
-                    )
-                },
-                actions = {
-                    IconButton(onClick = { showMenu = true }) {
-                        Icon(Icons.Default.MoreVert, contentDescription = "More")
+                        }) {
+                            Icon(
+                                imageVector = if (allNotesSelected) Icons.Default.CheckBox else Icons.Default.SelectAll,
+                                contentDescription = "Pilih Semua"
+                            )
+                        }
+                        IconButton(onClick = { showMultiColorPicker = true }) {
+                            Icon(Icons.Default.ColorLens, contentDescription = "Ubah Warna")
+                        }
+                        IconButton(onClick = {
+                            val allSelectedLocked = selectedNotes.all { it.isLocked }
+                            val targetLockedState = !allSelectedLocked
+                            val actionText = if (targetLockedState) "Mengunci catatan terpilih" else "Membuka kunci catatan terpilih"
+                            
+                            val notesCopy = selectedNotes.toList()
+                            val performBatchLock = {
+                                notesViewModel.setSelectedNotesLock(notesCopy, targetLockedState)
+                                val msg = if (targetLockedState) "${notesCopy.size} catatan dikunci" else "${notesCopy.size} kunci catatan dibuka"
+                                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                selectedNotes.clear()
+                                isSelectionMode = false
+                            }
+
+                            val status = biometricAuthenticator.isBiometricAvailable()
+                            if (status == BiometricAuthenticator.BiometricStatus.AVAILABLE) {
+                                biometricAuthenticator.authenticate(
+                                    activity = context as FragmentActivity,
+                                    title = actionText,
+                                    subtitle = "Autentikasi diperlukan",
+                                    description = "",
+                                    callback = object : BiometricAuthenticator.BiometricCallback {
+                                        override fun onAuthenticationSuccess(result: androidx.biometric.BiometricPrompt.AuthenticationResult) {
+                                            performBatchLock()
+                                        }
+                                        override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                                            Toast.makeText(context, "Autentikasi gagal", Toast.LENGTH_SHORT).show()
+                                        }
+                                        override fun onAuthenticationFailed() {
+                                            Toast.makeText(context, "Autentikasi tidak cocok", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                )
+                            } else {
+                                if (passwordViewModel.isPinSetup()) {
+                                    isBatchLockAction = true
+                                    batchLockTargetState = targetLockedState
+                                    showPinVerificationDialog = true
+                                } else {
+                                    Toast.makeText(context, "Harap aktifkan PIN di Pengaturan Pengelola Kata Sandi terlebih dahulu", Toast.LENGTH_LONG).show()
+                                }
+                            }
+                        }) {
+                            val allSelectedLocked = selectedNotes.all { it.isLocked }
+                            Icon(
+                                imageVector = if (allSelectedLocked) Icons.Default.LockOpen else Icons.Default.Lock,
+                                contentDescription = "Kunci/Buka Catatan"
+                            )
+                        }
+                        IconButton(onClick = {
+                            selectedNotes.forEach { notesViewModel.moveToArchive(it) }
+                            Toast.makeText(context, "${selectedNotes.size} catatan diarsipkan", Toast.LENGTH_SHORT).show()
+                            selectedNotes.clear()
+                            isSelectionMode = false
+                        }) {
+                            Icon(Icons.Default.Archive, contentDescription = "Arsip")
+                        }
+                        IconButton(onClick = {
+                            selectedNotes.forEach { notesViewModel.moveToTrash(it) }
+                            Toast.makeText(context, "${selectedNotes.size} catatan dipindahkan ke sampah", Toast.LENGTH_SHORT).show()
+                            selectedNotes.clear()
+                            isSelectionMode = false
+                        }) {
+                            Icon(Icons.Default.Delete, contentDescription = "Hapus")
+                        }
                     }
-                    DropdownMenu(
-                        expanded = showMenu,
-                        onDismissRequest = { showMenu = false }
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text(Localization.getString("settings", language)) },
-                            onClick = {
-                                showMenu = false
-                                onOpenSettings()
-                            }
+                )
+            } else {
+                TopAppBar(
+                    title = {
+                        Text(
+                            text = "KeyNote",
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier
+                                .clickable(
+                                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                                    indication = null
+                                ) {
+                                    handleLogoTap()
+                                }
+                                .padding(4.dp)
                         )
-                        DropdownMenuItem(
-                            text = { Text(Localization.getString("trash", language)) },
-                            onClick = {
-                                showMenu = false
-                                onOpenTrash()
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text(Localization.getString("archive", language)) },
-                            onClick = {
-                                showMenu = false
-                                onOpenArchive()
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text(Localization.getString("sync_backup", language)) },
-                            onClick = {
-                                showMenu = false
-                                onOpenSettings()
-                            }
-                        )
+                    },
+                    actions = {
+                        IconButton(onClick = { showMenu = true }) {
+                            Icon(Icons.Default.MoreVert, contentDescription = "More")
+                        }
+                        DropdownMenu(
+                            expanded = showMenu,
+                            onDismissRequest = { showMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text(Localization.getString("settings", language)) },
+                                onClick = {
+                                    showMenu = false
+                                    onOpenSettings()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text(Localization.getString("trash", language)) },
+                                onClick = {
+                                    showMenu = false
+                                    onOpenTrash()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text(Localization.getString("archive", language)) },
+                                onClick = {
+                                    showMenu = false
+                                    onOpenArchive()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text(Localization.getString("sync_backup", language)) },
+                                onClick = {
+                                    showMenu = false
+                                    onOpenSettings()
+                                }
+                            )
+                        }
                     }
-                }
-            )
+                )
+            }
         },
         floatingActionButton = {
-            IconButton(
-                onClick = onAddNoteClick,
-                modifier = Modifier
-                    .size(56.dp)
-                    .background(MaterialTheme.colorScheme.primaryContainer, CircleShape)
-            ) {
-                Icon(Icons.Default.Add, contentDescription = "Tambah Catatan", tint = MaterialTheme.colorScheme.onPrimaryContainer)
+            if (!isSelectionMode) {
+                IconButton(
+                    onClick = onAddNoteClick,
+                    modifier = Modifier
+                        .size(56.dp)
+                        .background(MaterialTheme.colorScheme.primaryContainer, CircleShape)
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = "Tambah Catatan", tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                }
             }
         },
         modifier = Modifier
@@ -320,12 +468,14 @@ fun NotesListScreen(
                         .fillMaxSize()
                         .padding(paddingValues)
                 ) {
-                    items(notes) { note ->
+                    items(notes, key = { it.id }) { note ->
                         NoteCard(
                             note = note,
-                            onClick = { handleNoteClick(note, false) },
-                            onDoubleClick = { handleNoteClick(note, true) },
-                            onLongClick = { selectedNoteForMenu = note }
+                            isSelectionMode = isSelectionMode,
+                            isSelected = selectedNotes.contains(note),
+                            onClick = { handleNoteItemClick(note) },
+                            onDoubleClick = { if (!isSelectionMode) handleNoteClick(note, true) else toggleSelection(note) },
+                            onLongClick = { handleNoteItemLongClick(note) }
                         )
                     }
                 }
@@ -337,12 +487,14 @@ fun NotesListScreen(
                         .fillMaxSize()
                         .padding(paddingValues)
                 ) {
-                    items(notes) { note ->
+                    items(notes, key = { it.id }) { note ->
                         NoteListItem(
                             note = note,
-                            onClick = { handleNoteClick(note, false) },
-                            onDoubleClick = { handleNoteClick(note, true) },
-                            onLongClick = { selectedNoteForMenu = note }
+                            isSelectionMode = isSelectionMode,
+                            isSelected = selectedNotes.contains(note),
+                            onClick = { handleNoteItemClick(note) },
+                            onDoubleClick = { if (!isSelectionMode) handleNoteClick(note, true) else toggleSelection(note) },
+                            onLongClick = { handleNoteItemLongClick(note) }
                         )
                     }
                 }
@@ -523,13 +675,13 @@ fun NotesListScreen(
         }
 
         // Custom Master PIN verification dialog for note locks
-        if (showPinVerificationDialog && pendingLockedNoteId != null) {
-            val noteId = pendingLockedNoteId!!
+        if (showPinVerificationDialog) {
             AlertDialog(
                 onDismissRequest = {
                     showPinVerificationDialog = false
                     pinVerificationText = ""
                     pendingLockedNoteId = null
+                    isBatchLockAction = false
                 },
                 title = { Text("Catatan Dikunci") },
                 text = {
@@ -553,17 +705,29 @@ fun NotesListScreen(
                             if (passwordViewModel.verifyPin(pinVerificationText)) {
                                 showPinVerificationDialog = false
                                 pinVerificationText = ""
-                                pendingLockedNoteId = null
-                                
-                                val targetNote = notes.find { it.id == noteId }
-                                if (targetNote != null) {
-                                    if (pendingToggleLockAction) {
-                                        notesViewModel.toggleNoteLock(targetNote)
-                                        val msg = if (targetNote.isLocked) "Kunci catatan dibuka" else "Catatan dikunci"
-                                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
-                                    } else {
-                                        onNoteClick(noteId, pendingEditMode)
+                                if (isBatchLockAction) {
+                                    val notesCopy = selectedNotes.toList()
+                                    notesViewModel.setSelectedNotesLock(notesCopy, batchLockTargetState)
+                                    val msg = if (batchLockTargetState) "${notesCopy.size} catatan dikunci" else "${notesCopy.size} kunci catatan dibuka"
+                                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                    selectedNotes.clear()
+                                    isSelectionMode = false
+                                    isBatchLockAction = false
+                                } else {
+                                    val noteId = pendingLockedNoteId
+                                    if (noteId != null) {
+                                        val targetNote = notes.find { it.id == noteId }
+                                        if (targetNote != null) {
+                                            if (pendingToggleLockAction) {
+                                                notesViewModel.toggleNoteLock(targetNote)
+                                                val msg = if (targetNote.isLocked) "Kunci catatan dibuka" else "Catatan dikunci"
+                                                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                            } else {
+                                                onNoteClick(noteId, pendingEditMode)
+                                            }
+                                        }
                                     }
+                                    pendingLockedNoteId = null
                                 }
                                 selectedNoteForMenu = null
                             } else {
@@ -581,8 +745,55 @@ fun NotesListScreen(
                             pinVerificationText = ""
                             pendingLockedNoteId = null
                             selectedNoteForMenu = null
+                            isBatchLockAction = false
                         }
                     ) {
+                        Text("Batal")
+                    }
+                }
+            )
+        }
+
+        // Color Picker Dialog for Multi-Selection Mode
+        if (showMultiColorPicker) {
+            AlertDialog(
+                onDismissRequest = { showMultiColorPicker = false },
+                title = { Text("Ubah Warna Catatan Terpilih") },
+                text = {
+                    Column {
+                        Text("Pilih warna latar belakang untuk semua catatan yang terpilih:")
+                        Spacer(modifier = Modifier.height(16.dp))
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(3),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.height(130.dp)
+                        ) {
+                            items(noteBgColors) { colorVal ->
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(36.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(Color(colorVal))
+                                        .border(
+                                            width = 1.dp,
+                                            color = Color.Gray,
+                                            shape = RoundedCornerShape(8.dp)
+                                        )
+                                        .clickable {
+                                            selectedNotes.forEach { notesViewModel.updateNoteColor(it, colorVal) }
+                                            selectedNotes.clear()
+                                            isSelectionMode = false
+                                            showMultiColorPicker = false
+                                        }
+                                )
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showMultiColorPicker = false }) {
                         Text("Batal")
                     }
                 }
@@ -595,6 +806,8 @@ fun NotesListScreen(
 @Composable
 fun NoteListItem(
     note: NoteEntity,
+    isSelectionMode: Boolean = false,
+    isSelected: Boolean = false,
     onClick: () -> Unit,
     onDoubleClick: () -> Unit,
     onLongClick: () -> Unit
@@ -603,7 +816,9 @@ fun NoteListItem(
     val isDefaultBg = note.backgroundColor == 0xFFFFFFFF.toInt() || note.backgroundColor == 0xFF121212.toInt()
     
     val stripeColor = if (isDefaultBg) Color.Gray else Color(note.backgroundColor)
-    val containerBgColor = if (isDefaultBg) {
+    val containerBgColor = if (isSelectionMode && isSelected) {
+        MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+    } else if (isDefaultBg) {
         MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
     } else {
         Color(note.backgroundColor).copy(alpha = 0.15f)
@@ -614,6 +829,7 @@ fun NoteListItem(
     Card(
         shape = RoundedCornerShape(4.dp),
         colors = CardDefaults.cardColors(containerColor = containerBgColor),
+        border = if (isSelectionMode && isSelected) androidx.compose.foundation.BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)) else null,
         modifier = Modifier
             .fillMaxWidth()
             .height(60.dp)
@@ -655,6 +871,16 @@ fun NoteListItem(
                 )
             }
 
+            // Selection Checkmark icon on the right side next to date
+            if (isSelectionMode && isSelected) {
+                Icon(
+                    imageVector = Icons.Default.Check,
+                    contentDescription = "Terpilih",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(end = 6.dp).size(18.dp)
+                )
+            }
+
             val dateFormat = SimpleDateFormat("dd MMM", Locale.getDefault())
             Text(
                 text = dateFormat.format(Date(note.updatedAt)),
@@ -670,6 +896,8 @@ fun NoteListItem(
 @Composable
 fun NoteCard(
     note: NoteEntity,
+    isSelectionMode: Boolean = false,
+    isSelected: Boolean = false,
     onClick: () -> Unit,
     onDoubleClick: () -> Unit,
     onLongClick: () -> Unit
@@ -677,7 +905,9 @@ fun NoteCard(
     val isDefaultBg = note.backgroundColor == 0xFFFFFFFF.toInt() || note.backgroundColor == 0xFF121212.toInt()
     val isSystemDark = isSystemInDarkTheme()
     
-    val cardColor = if (isDefaultBg) {
+    val cardColor = if (isSelectionMode && isSelected) {
+        MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+    } else if (isDefaultBg) {
         if (isSystemDark) Color(0xFF1E1E1E) else Color(0xFFF5F5F5)
     } else {
         Color(note.backgroundColor)
@@ -692,6 +922,7 @@ fun NoteCard(
     Card(
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         shape = RoundedCornerShape(8.dp),
+        border = if (isSelectionMode && isSelected) androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
         modifier = Modifier
             .fillMaxWidth()
             .height(130.dp)
@@ -728,6 +959,18 @@ fun NoteCard(
                         contentDescription = "Terverifikasi Kunci",
                         tint = contentColor.copy(alpha = 0.6f),
                         modifier = Modifier.size(18.dp)
+                    )
+                }
+                // Selection Checkmark icon in the top right corner
+                if (isSelectionMode && isSelected) {
+                    if (note.isLocked) {
+                        Spacer(modifier = Modifier.width(4.dp))
+                    }
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = "Terpilih",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
                     )
                 }
             }

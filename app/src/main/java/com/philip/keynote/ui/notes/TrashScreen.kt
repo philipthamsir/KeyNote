@@ -58,7 +58,7 @@ fun TrashScreen(
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(trashNotes) { note ->
+                items(trashNotes, key = { it.id }) { note ->
                     Card(
                         modifier = Modifier.fillMaxWidth()
                     ) {

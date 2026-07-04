@@ -73,7 +73,7 @@ fun PasswordListScreen(
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                items(passwords) { password ->
+                items(passwords, key = { it.id }) { password ->
                     GlassmorphicAccountCard(
                         title = password.title,
                         subtitle = password.fields.firstOrNull { it.type == com.philip.keynote.data.local.FieldType.IDENTIFIER }?.value ?: "Identitas belum diisi",

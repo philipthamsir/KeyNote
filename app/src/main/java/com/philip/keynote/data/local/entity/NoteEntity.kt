@@ -1,9 +1,16 @@
 package com.philip.keynote.data.local.entity
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
-@Entity(tableName = "notes")
+@Entity(
+    tableName = "notes",
+    indices = [
+        Index(value = ["isArchived", "isTrash", "updatedAt"]),
+        Index(value = ["isTrash", "updatedAt"])
+    ]
+)
 data class NoteEntity(
     @PrimaryKey(autoGenerate = true)
     val id: Long = 0L,

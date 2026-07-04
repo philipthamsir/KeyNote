@@ -39,6 +39,7 @@ import com.philip.keynote.data.local.NoteBlock
 import com.philip.keynote.data.local.TableData
 import com.philip.keynote.data.settings.SettingsManager
 import com.philip.keynote.ui.components.notebookLines
+import com.philip.keynote.ui.components.rememberSafeClick
 import com.philip.keynote.ui.theme.Localization
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
@@ -58,6 +59,7 @@ fun NoteDetailScreen(
     val title by viewModel.title.collectAsState()
     val backgroundColor by viewModel.backgroundColor.collectAsState()
     val blocks by viewModel.blocks.collectAsState()
+    val isLocked by viewModel.isLocked.collectAsState()
 
     var isEditMode by remember { mutableStateOf(initialEditMode) }
     var showColorPicker by remember { mutableStateOf(false) }
@@ -66,6 +68,8 @@ fun NoteDetailScreen(
     
     var activeFormattingBlockId by remember { mutableStateOf<String?>(null) }
     var showFormattingBar by remember { mutableStateOf(false) }
+
+    val safeClick = rememberSafeClick()
 
     LaunchedEffect(noteId) {
         viewModel.loadNote(noteId)
@@ -202,14 +206,16 @@ fun NoteDetailScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = {
-                        val isTitleEmpty = title.trim().isEmpty()
-                        val isContentEmpty = blocks.all { it.type == BlockType.TEXT && it.textContent.trim().isEmpty() }
-                        viewModel.saveNote {
-                            if (isTitleEmpty && isContentEmpty) {
-                                Toast.makeText(context, "Catatan kosong dibuang", Toast.LENGTH_SHORT).show()
-                            }
+                        safeClick {
                             if (isEditMode) {
-                                isEditMode = false
+                                val isTitleEmpty = title.trim().isEmpty()
+                                val isContentEmpty = blocks.all { it.type == BlockType.TEXT && it.textContent.trim().isEmpty() }
+                                viewModel.saveNote {
+                                    if (isTitleEmpty && isContentEmpty) {
+                                        Toast.makeText(context, "Catatan kosong dibuang", Toast.LENGTH_SHORT).show()
+                                    }
+                                    isEditMode = false
+                                }
                             } else {
                                 onBack()
                             }
@@ -252,6 +258,15 @@ fun NoteDetailScreen(
                             onClick = {
                                 showMenu = false
                                 Toast.makeText(context, "Fitur Pengingat diaktifkan", Toast.LENGTH_SHORT).show()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text(if (isLocked) "Buka Kunci Sandi" else "Kunci Sandi") },
+                            onClick = {
+                                showMenu = false
+                                viewModel.toggleLock()
+                                val msg = if (isLocked) "Batal dikunci" else "Catatan akan dikunci setelah disimpan"
+                                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                             }
                         )
                     }

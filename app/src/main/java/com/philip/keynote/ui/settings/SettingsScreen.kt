@@ -24,12 +24,16 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.google.android.gms.auth.GoogleAuthUtil
+import com.google.android.gms.auth.UserRecoverableAuthException
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.common.api.ApiException
 import com.google.android.gms.common.api.Scope
 import com.philip.keynote.data.backup.BackupManager
 import com.philip.keynote.data.backup.GoogleDriveBackupHelper
+import com.philip.keynote.data.backup.GoogleDriveAuthException
+import com.philip.keynote.data.backup.BackupWorker
 import com.philip.keynote.data.settings.SettingsManager
 import com.philip.keynote.ui.theme.Localization
 import kotlinx.coroutines.delay
@@ -577,7 +581,11 @@ fun SettingsScreen(
                                     onlineBackupEnabled = it
                                     settingsManager.setOnlineBackupEnabled(it)
                                     if (it) {
+                                        BackupWorker.scheduleAutoBackup(context)
                                         Toast.makeText(context, "Pencadangan otomatis Google Drive aktif!", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        BackupWorker.cancelAutoBackup(context)
+                                        Toast.makeText(context, "Pencadangan otomatis dinonaktifkan.", Toast.LENGTH_SHORT).show()
                                     }
                                 }
                             )
@@ -609,23 +617,45 @@ fun SettingsScreen(
                                     coroutineScope.launch {
                                         try {
                                             val account = GoogleSignIn.getLastSignedInAccount(context)
-                                            if (account != null && account.account != null) {
+                                            val driveScope = Scope("https://www.googleapis.com/auth/drive.appdata")
+                                            if (account == null || !GoogleSignIn.hasPermissions(account, driveScope)) {
+                                                Toast.makeText(context, "Izin Google Drive diperlukan. Mohon pilih akun Anda dan setujui izinnya.", Toast.LENGTH_LONG).show()
+                                                googleSignInLauncher.launch(googleSignInClient.signInIntent)
+                                                return@launch
+                                            }
+
+                                            if (account.account != null) {
                                                 val simulatedPass = "google_drive_secure_backup"
                                                 val outputStream = ByteArrayOutputStream()
                                                 val exportResult = backupManager.exportBackup(simulatedPass, outputStream)
                                                 if (exportResult.isSuccess) {
                                                     val backupBytes = outputStream.toByteArray()
-                                                    val uploadSuccess = googleDriveBackupHelper.uploadBackup(account.account!!, backupBytes)
-                                                    if (uploadSuccess) {
+                                                    val uploadResult = googleDriveBackupHelper.uploadBackup(account.account!!, backupBytes)
+                                                    if (uploadResult.isSuccess) {
                                                         val now = System.currentTimeMillis()
                                                         settingsManager.setLastOnlineBackupTime(now)
                                                         lastBackupTime = now
                                                         Toast.makeText(context, "Pencadangan Google Drive berhasil!", Toast.LENGTH_SHORT).show()
                                                     } else {
-                                                        Toast.makeText(context, "Gagal mengunggah ke Google Drive.", Toast.LENGTH_LONG).show()
+                                                         val exception = uploadResult.exceptionOrNull()
+                                                         if (exception is UserRecoverableAuthException) {
+                                                             Toast.makeText(context, "Izin Google Drive diperlukan. Mohon setujui permintaan izin yang muncul.", Toast.LENGTH_LONG).show()
+                                                             exception.intent?.let { googleSignInLauncher.launch(it) }
+                                                         } else if (exception is GoogleDriveAuthException) {
+                                                               Toast.makeText(context, "${exception.message}. Mengatur ulang sesi...", Toast.LENGTH_LONG).show()
+                                                               googleSignInClient.revokeAccess().addOnCompleteListener {
+                                                                   settingsManager.setGoogleSignedIn(false)
+                                                                   googleSignedIn = false
+                                                                   onlineBackupEnabled = false
+                                                                   BackupWorker.cancelAutoBackup(context)
+                                                                   googleSignInLauncher.launch(googleSignInClient.signInIntent)
+                                                               }
+                                                         } else {
+                                                             Toast.makeText(context, "Gagal mengunggah: ${exception?.message}", Toast.LENGTH_SHORT).show()
+                                                         }
                                                     }
                                                 } else {
-                                                    Toast.makeText(context, "Gagal mengekspor data: ${exportResult.exceptionOrNull()?.message}", Toast.LENGTH_LONG).show()
+                                                    Toast.makeText(context, "Gagal mengekspor data: ${exportResult.exceptionOrNull()?.message}", Toast.LENGTH_SHORT).show()
                                                 }
                                             } else {
                                                 Toast.makeText(context, "Akun Google tidak ditemukan.", Toast.LENGTH_SHORT).show()
@@ -649,19 +679,46 @@ fun SettingsScreen(
                                     coroutineScope.launch {
                                         try {
                                             val account = GoogleSignIn.getLastSignedInAccount(context)
-                                            if (account != null && account.account != null) {
-                                                val backupBytes = googleDriveBackupHelper.downloadBackup(account.account!!)
-                                                if (backupBytes != null && backupBytes.isNotEmpty()) {
-                                                    val inputStream = ByteArrayInputStream(backupBytes)
-                                                    val simulatedPass = "google_drive_secure_backup"
-                                                    val result = backupManager.importBackup(simulatedPass, inputStream)
-                                                    if (result.isSuccess) {
-                                                        Toast.makeText(context, "Restore pencadangan online berhasil! Mulai ulang aplikasi.", Toast.LENGTH_LONG).show()
+                                            val driveScope = Scope("https://www.googleapis.com/auth/drive.appdata")
+                                            if (account == null || !GoogleSignIn.hasPermissions(account, driveScope)) {
+                                                Toast.makeText(context, "Izin Google Drive diperlukan. Mohon pilih akun Anda dan setujui izinnya.", Toast.LENGTH_LONG).show()
+                                                googleSignInLauncher.launch(googleSignInClient.signInIntent)
+                                                return@launch
+                                            }
+
+                                            if (account.account != null) {
+                                                val downloadResult = googleDriveBackupHelper.downloadBackup(account.account!!)
+                                                if (downloadResult.isSuccess) {
+                                                    val backupBytes = downloadResult.getOrNull()
+                                                    if (backupBytes != null && backupBytes.isNotEmpty()) {
+                                                        val inputStream = ByteArrayInputStream(backupBytes)
+                                                        val simulatedPass = "google_drive_secure_backup"
+                                                        val result = backupManager.importBackup(simulatedPass, inputStream)
+                                                        if (result.isSuccess) {
+                                                            Toast.makeText(context, "Restore pencadangan online berhasil! Mulai ulang aplikasi.", Toast.LENGTH_LONG).show()
+                                                        } else {
+                                                            Toast.makeText(context, "Gagal memulihkan: ${result.exceptionOrNull()?.message}", Toast.LENGTH_LONG).show()
+                                                        }
                                                     } else {
-                                                        Toast.makeText(context, "Gagal memulihkan: ${result.exceptionOrNull()?.message}", Toast.LENGTH_LONG).show()
+                                                        Toast.makeText(context, "Data pencadangan kosong.", Toast.LENGTH_LONG).show()
                                                     }
                                                 } else {
-                                                    Toast.makeText(context, "Tidak ada data pencadangan ditemukan di Google Drive untuk akun ini.", Toast.LENGTH_LONG).show()
+                                                    val exception = downloadResult.exceptionOrNull()
+                                                    if (exception is UserRecoverableAuthException) {
+                                                        Toast.makeText(context, "Izin Google Drive diperlukan. Mohon setujui permintaan izin yang muncul.", Toast.LENGTH_LONG).show()
+                                                        exception.intent?.let { googleSignInLauncher.launch(it) }
+                                                    } else if (exception is GoogleDriveAuthException) {
+                                                          Toast.makeText(context, "${exception.message}. Mengatur ulang sesi...", Toast.LENGTH_LONG).show()
+                                                          googleSignInClient.revokeAccess().addOnCompleteListener {
+                                                             settingsManager.setGoogleSignedIn(false)
+                                                             googleSignedIn = false
+                                                             onlineBackupEnabled = false
+                                                             BackupWorker.cancelAutoBackup(context)
+                                                             googleSignInLauncher.launch(googleSignInClient.signInIntent)
+                                                         }
+                                                    } else {
+                                                        Toast.makeText(context, "Gagal memulihkan: ${exception?.message}", Toast.LENGTH_SHORT).show()
+                                                    }
                                                 }
                                             } else {
                                                 Toast.makeText(context, "Akun Google tidak ditemukan.", Toast.LENGTH_SHORT).show()
@@ -689,6 +746,7 @@ fun SettingsScreen(
                                     settingsManager.setGoogleSignedIn(false)
                                     googleSignedIn = false
                                     onlineBackupEnabled = false
+                                    BackupWorker.cancelAutoBackup(context)
                                     Toast.makeText(context, "Keluar dari Akun Google", Toast.LENGTH_SHORT).show()
                                 }
                             },

@@ -32,12 +32,16 @@ class NoteDetailViewModel(private val repository: NoteRepository) : ViewModel() 
     private val _blocks = MutableStateFlow<List<NoteBlock>>(emptyList())
     val blocks: StateFlow<List<NoteBlock>> = _blocks.asStateFlow()
 
+    private val _isLocked = MutableStateFlow(false)
+    val isLocked: StateFlow<Boolean> = _isLocked.asStateFlow()
+
     fun loadNote(id: Long?) {
         if (id == null || id == 0L) {
             _noteId.value = null
             _title.value = ""
             _backgroundColor.value = 0xFFFFFFFF.toInt()
             _blocks.value = listOf(NoteBlock(UUID.randomUUID().toString(), BlockType.TEXT))
+            _isLocked.value = false
             return
         }
         _noteId.value = id
@@ -45,6 +49,7 @@ class NoteDetailViewModel(private val repository: NoteRepository) : ViewModel() 
             repository.getNoteById(id)?.let { note ->
                 _title.value = note.title
                 _backgroundColor.value = note.backgroundColor
+                _isLocked.value = note.isLocked
                 
                 // Migrate legacy note types to multi-block on the fly
                 val migratedBlocks = when (note.noteType) {
@@ -84,6 +89,10 @@ class NoteDetailViewModel(private val repository: NoteRepository) : ViewModel() 
                 }
             }
         }
+    }
+
+    fun toggleLock() {
+        _isLocked.value = !_isLocked.value
     }
 
     fun updateTitle(newTitle: String) {
@@ -281,9 +290,11 @@ class NoteDetailViewModel(private val repository: NoteRepository) : ViewModel() 
                     backgroundColor = _backgroundColor.value,
                     createdAt = time,
                     updatedAt = time,
-                    noteType = "MERGED"
+                    noteType = "MERGED",
+                    isLocked = _isLocked.value
                 )
-                repository.insertNote(newNote)
+                val newId = repository.insertNote(newNote)
+                _noteId.value = newId
             } else {
                 repository.getNoteById(currentId)?.let { existing ->
                     val updatedNote = existing.copy(
@@ -291,7 +302,8 @@ class NoteDetailViewModel(private val repository: NoteRepository) : ViewModel() 
                         content = content,
                         backgroundColor = _backgroundColor.value,
                         updatedAt = time,
-                        noteType = "MERGED"
+                        noteType = "MERGED",
+                        isLocked = _isLocked.value
                     )
                     repository.updateNote(updatedNote)
                 }

@@ -105,7 +105,7 @@ fun PasswordCategoriesScreen(
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                     modifier = Modifier.weight(1f)
                 ) {
-                    items(categories) { category ->
+                    items(categories, key = { it.id }) { category ->
                         CategoryCard(
                             category = category,
                             accentColor = themeAccentColor,

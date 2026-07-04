@@ -74,4 +74,14 @@ class NotesViewModel(private val repository: NoteRepository) : ViewModel() {
             repository.updateNote(note.copy(isLocked = !note.isLocked, updatedAt = System.currentTimeMillis()))
         }
     }
+
+    fun setSelectedNotesLock(notes: List<NoteEntity>, isLocked: Boolean) {
+        viewModelScope.launch {
+            notes.forEach { note ->
+                if (note.isLocked != isLocked) {
+                    repository.updateNote(note.copy(isLocked = isLocked, updatedAt = System.currentTimeMillis()))
+                }
+            }
+        }
+    }
 }

@@ -6,6 +6,8 @@
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
     <!-- Deprecated but still used for older devices -->
     <uses-permission android:name="android.permission.USE_FINGERPRINT" />
+    <!-- Internet permission for cloud backup/sync -->
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <application
         android:name=".KeyNoteApplication"
